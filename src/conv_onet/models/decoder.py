@@ -16,6 +16,7 @@ class GaussianFourierFeatureTransform(torch.nn.Module):
 
     def __init__(self, num_input_channels, mapping_size=93, scale=25, learnable=True):
         super().__init__()
+        self.notify_once = True
 
         if learnable:
             self._B = nn.Parameter(torch.randn(
@@ -24,10 +25,16 @@ class GaussianFourierFeatureTransform(torch.nn.Module):
             self._B = torch.randn((num_input_channels, mapping_size)) * scale
 
     def forward(self, x):
+        if self.notify_once:
+            print("the shape is:", x.shape)
         x = x.squeeze(0)
         assert x.dim() == 2, 'Expected 2D input (got {}D input)'.format(x.dim())
         x = x @ self._B.to(x.device)
-        return torch.sin(x)
+        ret = torch.sin(x)
+        if self.notify_once:
+            print("the output shape is:", ret.shape)
+            self.notify_once = False
+        return ret
 
 
 class Nerf_positional_embedding(torch.nn.Module):
@@ -47,6 +54,7 @@ class Nerf_positional_embedding(torch.nn.Module):
         self.N_freqs = self.num_freqs
 
     def forward(self, x):
+
         x = x.squeeze(0)
         assert x.dim() == 2, 'Expected 2D input (got {}D input)'.format(
             x.dim())
@@ -64,6 +72,7 @@ class Nerf_positional_embedding(torch.nn.Module):
             for p_fn in self.periodic_fns:
                 output.append(p_fn(x * freq))
         ret = torch.cat(output, dim=1)
+
         return ret
 
 
@@ -87,6 +96,45 @@ class Same(nn.Module):
         x = x.squeeze(0)
         return x
 
+class One_Blob(torch.nn.Module):
+   def __init__(self, lower_bound= -100.0, upper_bound=-100.0, num_bins=1024,std_dev = 1.0):
+        #one blob encoding encodes (1,B,3) tensor into (B,3*1024) tensor
+        #one blob calculates the distance between the current bin and the kernel value
+        #then assigns the kernel value to the bin according to a gaussian distribution
+        super().__init__()
+        self.gaussian = torch.distributions.normal.Normal(0,std_dev)
+        self.lower_bound = lower_bound
+        self.upper_bound = upper_bound
+        self.num_bins = num_bins
+        self.bin_size = (self.upper_bound - self.lower_bound) / self.num_bins
+        self.bin_loc = torch.arange(self.lower_bound, self.upper_bound, self.bin_size)+self.bin_size/2
+        self.bins = torch.arange(self.lower_bound, self.upper_bound, self.bin_size)
+        self.gaussian.requires_grad = False
+        self.one_time_notification = True
+        # this function calculates the distance between the current bin and the kernel value
+
+   def forward(self, x):
+
+        # x is a (1,B,3) tensor
+        x= x.squeeze(0)
+        if self.one_time_notification:
+             print("you are using One_Blob encoding")
+             self.one_time_notification=False
+        if len(x.shape) == 1:
+            x = x.unsqueeze(0)
+        batch_size = x.shape[0]
+        dis = self.bin_loc.repeat(3, 1)
+        dis = dis.repeat(batch_size, 1, 1)
+        # dis is a (B,3,1024) tensor
+        x = x.unsqueeze(-1)
+        x = x.repeat(1, 1, self.num_bins)
+        dis = dis - x
+        blob = self.gaussian.log_prob(dis)
+        blob = torch.exp(blob)
+
+        blob = blob.reshape(batch_size, -1)
+
+        return blob
 
 class MLP(nn.Module):
     """
@@ -145,7 +193,9 @@ class MLP(nn.Module):
         elif pos_embedding_method == 'fc_relu':
             embedding_size = 93
             self.embedder = DenseLayer(dim, embedding_size, activation='relu')
-
+        elif pos_embedding_method == 'one_blob':
+            embedding_size = 512*3
+            self.embedder = One_Blob(num_bins=512)
         self.pts_linears = nn.ModuleList(
             [DenseLayer(embedding_size, hidden_size, activation="relu")] +
             [DenseLayer(hidden_size, hidden_size, activation="relu") if i not in self.skips
