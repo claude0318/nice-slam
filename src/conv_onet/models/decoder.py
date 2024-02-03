@@ -88,7 +88,7 @@ class Same(nn.Module):
         return x
         
 class One_Blob(torch.nn.Module):
-   def __init__(self, lower_bound= -100.0, upper_bound=-100.0, num_bins=1024,std_dev = 1.0):
+   def __init__(self, lower_bound= -100.0, upper_bound=100.0, num_bins=1024,std_dev = 1.0):
         #one blob encoding encodes (B,3) tensor into (B,3*1024) tensor
         #one blob calculates the distance between the current bin and the kernel value
         #then assigns the kernel value to the bin according to a gaussian distribution
