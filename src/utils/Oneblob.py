@@ -1,8 +1,8 @@
 import torch
 
 class One_Blob(torch.nn.Module):
-   def __init__(self, lower_bound= -100.0, upper_bound=-100.0, num_bins=1024,std_dev = 1.0):
-        #one blob encoding encodes (B,3) tensor into (B,3*1024) tensor
+   def __init__(self, lower_bound= -100.0, upper_bound=100.0, num_bins=1024,std_dev = 1.0):
+        #one blob encoding encodes (1,B,3) tensor into (B,3*1024) tensor
         #one blob calculates the distance between the current bin and the kernel value
         #then assigns the kernel value to the bin according to a gaussian distribution
         super().__init__()
@@ -18,7 +18,9 @@ class One_Blob(torch.nn.Module):
         # this function calculates the distance between the current bin and the kernel value
 
    def forward(self, x):
-        # x is a (B,3) tensor
+        
+        # x is a (1,B,3) tensor
+        x= x.squeeze(0)
         if len(x.shape) == 1:
             x = x.unsqueeze(0)
         batch_size = x.shape[0]
@@ -30,7 +32,7 @@ class One_Blob(torch.nn.Module):
         dis = dis - x
         blob = self.gaussian.log_prob(dis)
         blob = torch.exp(blob)
-        print("hi")
+        
         blob = blob.reshape(batch_size, -1)
 
         return blob
